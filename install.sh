@@ -229,7 +229,7 @@ fi
 
 ## Formatting the partition as BTRFS
 output 'Formatting the rootfs as BTRFS.'
-mkfs.btrfs -f "${BTRFS}"
+mkfs.btrfs -L ARCH-B-ROOT -f -n 32k "${BTRFS}"
 mount "${BTRFS}" /mnt
 
 ## Creating BTRFS subvolumes
@@ -337,7 +337,7 @@ mount -o nodev,nosuid,noexec "${ESP}" /mnt/boot/efi
 ## Pacstrap
 output 'Installing the base system (it may take a while).'
 
-pacstrap /mnt base base-devel linux-firmware linux-zen neovim efibootmgr firewalld grub grub-btrfs reflector snapper sudo zram-generator
+pacstrap /mnt base base-devel linux-firmware linux-zen git neovim efibootmgr firewalld grub grub-btrfs inotify-tools reflector snapper sudo zram-generator
 
 if [ "${virtualization}" = 'none' ]; then
     CPU=$(grep vendor_id /proc/cpuinfo)
@@ -396,6 +396,7 @@ echo '# Loopback entries; do not change.
 
 ## Setup locales
 echo "$locale.UTF-8 UTF-8"  > /mnt/etc/locale.gen
+echo "zh_CN.UTF-8 UTF-8"  > /mnt/etc/locale.gen
 echo "LANG=$locale.UTF-8" > /mnt/etc/locale.conf
 
 ## Setup keyboard layout
@@ -538,7 +539,7 @@ arch-chroot /mnt /bin/bash -e <<EOF
 
     # Setting up timezone
     # Temporarily hardcoding here
-    ln -sf /usr/share/zoneinfo/Etc/UTC /etc/localtime
+    ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
 
     # Setting up clock
     hwclock --systohc
