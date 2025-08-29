@@ -335,7 +335,7 @@ mount -o nodev,nosuid,noexec "${ESP}" /mnt/boot/efi
 ## Pacstrap
 output 'Installing the base system (it may take a while).'
 
-pacstrap /mnt apparmor base chrony efibootmgr firewalld grub grub-btrfs inotify-tools linux-firmware linux-hardened linux-lts nano reflector snapper sudo zram-generator
+pacstrap /mnt base base-devel linux-firmware linux-zen neovim efibootmgr firewalld grub grub-btrfs reflector snapper sudo zram-generator
 
 if [ "${virtualization}" = 'none' ]; then
     CPU=$(grep vendor_id /proc/cpuinfo)
