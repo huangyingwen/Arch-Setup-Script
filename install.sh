@@ -16,6 +16,8 @@
 
 set -eu
 
+timedatectl set-ntp true
+
 output(){
     printf '\e[1;34m%-6s\e[m\n' "${@}"
 }
