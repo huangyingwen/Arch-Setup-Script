@@ -250,8 +250,9 @@ btrfs su cr /mnt/@/var_tmp
 btrfs su cr /mnt/@/var_spool
 btrfs su cr /mnt/@/var_lib_libvirt_images
 btrfs su cr /mnt/@/var_lib_machines
+btrfs su cr /mnt/@/var_lib_docker
 if [ "${install_mode}" = 'desktop' ]; then
-    btrfs su cr /mnt/@/var_lib_gdm
+    btrfs su cr /mnt/@/var_lib_sddm
     btrfs su cr /mnt/@/var_lib_AccountsService
 fi
 
@@ -271,8 +272,9 @@ chattr +C /mnt/@/var_tmp
 chattr +C /mnt/@/var_spool
 chattr +C /mnt/@/var_lib_libvirt_images
 chattr +C /mnt/@/var_lib_machines
+chattr +C /mnt/@/var_lib_docker
 if [ "${install_mode}" = 'desktop' ]; then
-    chattr +C /mnt/@/var_lib_gdm
+    chattr +C /mnt/@/var_lib_sddm
     chattr +C /mnt/@/var_lib_AccountsService
 fi
 
@@ -298,9 +300,9 @@ chmod 600 /mnt/@/.snapshots/1/info.xml
 umount /mnt
 output 'Mounting the newly created subvolumes.'
 mount -o ssd,noatime,compress=zstd "${BTRFS}" /mnt
-mkdir -p /mnt/{boot,root,home,.snapshots,srv,tmp,var/log,var/crash,var/cache,var/tmp,var/spool,var/lib/libvirt/images,var/lib/machines}
+mkdir -p /mnt/{boot,root,home,.snapshots,srv,tmp,var/log,var/crash,var/cache,var/tmp,var/spool,var/lib/libvirt/images,var/lib/machines,var/lib/docker}
 if [ "${install_mode}" = 'desktop' ]; then
-    mkdir -p /mnt/{var/lib/gdm,var/lib/AccountsService}
+    mkdir -p /mnt/{var/lib/sddm,var/lib/AccountsService}
 fi
 
 if [ "${use_luks}" = '1' ]; then
@@ -319,10 +321,11 @@ mount -o ssd,noatime,compress=zstd,nodatacow,nodev,nosuid,noexec,subvol=@/var_tm
 mount -o ssd,noatime,compress=zstd,nodatacow,nodev,nosuid,noexec,subvol=@/var_spool "${BTRFS}" /mnt/var/spool
 mount -o ssd,noatime,compress=zstd,nodatacow,nodev,nosuid,noexec,subvol=@/var_lib_libvirt_images "${BTRFS}" /mnt/var/lib/libvirt/images
 mount -o ssd,noatime,compress=zstd,nodatacow,nodev,nosuid,noexec,subvol=@/var_lib_machines "${BTRFS}" /mnt/var/lib/machines
+mount -o ssd,noatime,compress=zstd,nodatacow,nodev,nosuid,noexec,subvol=@/var_lib_docker "${BTRFS}" /mnt/var/lib/docker
 
-# GNOME requires /var/lib/gdm and /var/lib/AccountsService to be writeable when booting into a readonly snapshot
+# GNOME requires /var/lib/sddm and /var/lib/AccountsService to be writeable when booting into a readonly snapshot
 if [ "${install_mode}" = 'desktop' ]; then
-    mount -o ssd,noatime,compress=zstd,nodatacow,nodev,nosuid,noexec,subvol=@/var_lib_gdm $BTRFS /mnt/var/lib/gdm
+    mount -o ssd,noatime,compress=zstd,nodatacow,nodev,nosuid,noexec,subvol=@/var_lib_sddm $BTRFS /mnt/var/lib/sddm
     mount -o ssd,noatime,compress=zstd,nodatacow,nodev,nosuid,noexec,subvol=@/var_lib_AccountsService $BTRFS /mnt/var/lib/AccountsService
 fi
 
@@ -355,8 +358,8 @@ if [ "${network_daemon}" = 'networkmanager' ]; then
 fi
 
 if [ "${install_mode}" = 'desktop' ]; then
-    # pacstrap /mnt flatpak gdm gnome-console gnome-control-center nautilus pipewire-alsa pipewire-pulse pipewire-jack
-    pacstrap /mnt gdm openssh
+    # pacstrap /mnt flatpak sddm gnome-console gnome-control-center nautilus pipewire-alsa pipewire-pulse pipewire-jack
+    pacstrap /mnt sddm openssh
 elif [ "${install_mode}" = 'server' ]; then
     pacstrap /mnt openssh unbound
 fi
@@ -602,7 +605,7 @@ else
 fi
 
 if [ "${install_mode}" = 'desktop' ]; then
-    systemctl enable gdm --root=/mnt
+    systemctl enable sddm --root=/mnt
     rm /mnt/etc/resolv.conf
     ln -s /run/systemd/resolve/stub-resolv.conf /mnt/etc/resolv.conf
     systemctl enable systemd-resolved --root=/mnt
