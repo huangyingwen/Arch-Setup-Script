@@ -29,7 +29,7 @@ unpriv(){
 installation_date=$(date "+%Y-%m-%d %H:%M:%S")
 
 # Check if this is a VM
-virtualization=$(systemd-detect-virt)
+virtualization=none
 
 install_mode_selector() {
     output 'Is this a desktop or server installation?'
@@ -63,7 +63,7 @@ luks_prompt(){
                 luks_prompt
         esac
     else
-        use_luks='1'
+        use_luks='0'
     fi
 }
 
@@ -340,16 +340,18 @@ mount -o nodev,nosuid,noexec "${ESP}" /mnt/boot/efi
 ## Pacstrap
 output 'Installing the base system (it may take a while).'
 
-pacstrap /mnt base base-devel linux-firmware linux-zen git neovim efibootmgr firewalld grub grub-btrfs inotify-tools reflector snapper sudo zram-generator
+pacstrap /mnt base base-devel linux-firmware linux linux-headers git neovim efibootmgr firewalld grub grub-btrfs inotify-tools reflector snapper sudo zram-generator
 
 if [ "${virtualization}" = 'none' ]; then
     CPU=$(grep vendor_id /proc/cpuinfo)
+    # 判断有问题需要修改
     if [ "${CPU}" == "*AuthenticAMD*" ]; then
         microcode=amd-ucode
     else
         microcode=intel-ucode
     fi
 
+    microcode=amd-ucode
     pacstrap /mnt "${microcode}"
 fi
 
@@ -564,11 +566,6 @@ arch-chroot /mnt /bin/bash -e <<EOF
     useradd -c "$fullname" -m "$username"
     usermod -aG wheel "$username"
 
-    # if [ "${install_mode}" = 'desktop' ]; then
-    #     # Setting up dconf
-    #     dconf update
-    # fi
-
     # Snapper configuration
     umount /.snapshots
     rm -r /.snapshots
@@ -605,7 +602,7 @@ else
 fi
 
 if [ "${install_mode}" = 'desktop' ]; then
-    systemctl enable sddm --root=/mnt
+    # systemctl enable sddm --root=/mnt
     rm /mnt/etc/resolv.conf
     ln -s /run/systemd/resolve/stub-resolv.conf /mnt/etc/resolv.conf
     systemctl enable systemd-resolved --root=/mnt
