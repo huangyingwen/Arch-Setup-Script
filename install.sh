@@ -399,7 +399,7 @@ echo '# Loopback entries; do not change.
 
 ## Setup locales
 echo "$locale.UTF-8 UTF-8"  > /mnt/etc/locale.gen
-echo "zh_CN.UTF-8 UTF-8"  > /mnt/etc/locale.gen
+echo "zh_CN.UTF-8 UTF-8"  >> /mnt/etc/locale.gen
 echo "LANG=$locale.UTF-8" > /mnt/etc/locale.conf
 
 ## Setup keyboard layout
