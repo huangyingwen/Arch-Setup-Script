@@ -564,10 +564,10 @@ arch-chroot /mnt /bin/bash -e <<EOF
     useradd -c "$fullname" -m "$username"
     usermod -aG wheel "$username"
 
-    if [ "${install_mode}" = 'desktop' ]; then
-        # Setting up dconf
-        dconf update
-    fi
+    # if [ "${install_mode}" = 'desktop' ]; then
+    #     # Setting up dconf
+    #     dconf update
+    # fi
 
     # Snapper configuration
     umount /.snapshots
