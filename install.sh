@@ -555,7 +555,7 @@ arch-chroot /mnt /bin/bash -e <<EOF
     mkinitcpio -P
 
     # Installing GRUB
-    grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB --disable-shim-lock --no-nvram --removable
+    grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB --disable-shim-lock
 
     # Creating grub config file
     grub-mkconfig -o /boot/grub/grub.cfg
