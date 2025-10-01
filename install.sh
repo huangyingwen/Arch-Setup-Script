@@ -16,6 +16,8 @@
 
 set -eu
 
+systemctl stop reflector.service
+
 ## updating pacman mirrorlist
 curl -L 'https://archlinux.org/mirrorlist/?country=CN&protocol=https' -o /etc/pacman.d/mirrorlist
 sed -i 's/^#Server/Server/' /etc/pacman.d/mirrorlist
@@ -259,6 +261,7 @@ btrfs su cr /mnt/@/var_spool
 btrfs su cr /mnt/@/var_lib_libvirt_images
 btrfs su cr /mnt/@/var_lib_machines
 btrfs su cr /mnt/@/var_lib_docker
+btrfs su cr /mnt/@/var_lib_ollama
 if [ "${install_mode}" = 'desktop' ]; then
   btrfs su cr /mnt/@/var_lib_sddm
   btrfs su cr /mnt/@/var_lib_AccountsService
@@ -281,6 +284,7 @@ chattr +C /mnt/@/var_spool
 chattr +C /mnt/@/var_lib_libvirt_images
 chattr +C /mnt/@/var_lib_machines
 chattr +C /mnt/@/var_lib_docker
+chattr +C /mnt/@/var_lib_ollama
 if [ "${install_mode}" = 'desktop' ]; then
   chattr +C /mnt/@/var_lib_sddm
   chattr +C /mnt/@/var_lib_AccountsService
@@ -308,7 +312,7 @@ chmod 600 /mnt/@/.snapshots/1/info.xml
 umount /mnt
 output 'Mounting the newly created subvolumes.'
 mount -o ssd,noatime,compress=zstd "${BTRFS}" /mnt
-mkdir -p /mnt/{boot,root,home,.snapshots,srv,tmp,var/log,var/crash,var/cache,var/tmp,var/spool,var/lib/libvirt/images,var/lib/machines,var/lib/docker}
+mkdir -p /mnt/{boot,root,home,.snapshots,srv,tmp,var/log,var/crash,var/cache,var/tmp,var/spool,var/lib/libvirt/images,var/lib/machines,var/lib/docker,var/lib/ollama}
 if [ "${install_mode}" = 'desktop' ]; then
   mkdir -p /mnt/{var/lib/sddm,var/lib/AccountsService}
 fi
@@ -330,6 +334,7 @@ mount -o ssd,noatime,compress=zstd,nodatacow,nodev,nosuid,noexec,subvol=@/var_sp
 mount -o ssd,noatime,compress=zstd,nodatacow,nodev,nosuid,noexec,subvol=@/var_lib_libvirt_images "${BTRFS}" /mnt/var/lib/libvirt/images
 mount -o ssd,noatime,compress=zstd,nodatacow,nodev,nosuid,noexec,subvol=@/var_lib_machines "${BTRFS}" /mnt/var/lib/machines
 mount -o ssd,noatime,compress=zstd,nodatacow,nodev,nosuid,noexec,subvol=@/var_lib_docker "${BTRFS}" /mnt/var/lib/docker
+mount -o ssd,noatime,compress=zstd,nodatacow,nodev,nosuid,noexec,subvol=@/var_lib_ollama "${BTRFS}" /mnt/var/lib/ollama
 
 # GNOME requires /var/lib/sddm and /var/lib/AccountsService to be writeable when booting into a readonly snapshot
 if [ "${install_mode}" = 'desktop' ]; then
@@ -351,15 +356,14 @@ output 'Installing the base system (it may take a while).'
 pacstrap /mnt base base-devel linux-firmware linux linux-headers git neovim efibootmgr firewalld grub grub-btrfs inotify-tools snapper sudo zsh zsh-completions zramswap
 
 if [ "${virtualization}" = 'none' ]; then
-  CPU=$(grep vendor_id /proc/cpuinfo)
+  CPU=$(grep -m 1 "vendor_id" /proc/cpuinfo | awk '{print $3}')
   # 判断有问题需要修改
-  if [ "${CPU}" == "*AuthenticAMD*" ]; then
+  if [ "${CPU}" == "AuthenticAMD" ]; then
     microcode=amd-ucode
   else
     microcode=intel-ucode
   fi
 
-  microcode=amd-ucode
   pacstrap /mnt "${microcode}"
 fi
 
@@ -374,15 +378,15 @@ elif [ "${install_mode}" = 'server' ]; then
   pacstrap /mnt openssh unbound
 fi
 
-if [ "${virtualization}" = 'none' ]; then
-  pacstrap /mnt fwupd
-  echo 'UriSchemes=file;https' | sudo tee -a /mnt/etc/fwupd/fwupd.conf
-elif [ "${virtualization}" = 'kvm' ]; then
-  pacstrap /mnt qemu-guest-agent
-  if [ "${install_mode}" = 'desktop' ]; then
-    pacstrap /mnt spice-vdagent
-  fi
-fi
+# if [ "${virtualization}" = 'none' ]; then
+#   pacstrap /mnt fwupd
+#   echo 'UriSchemes=file;https' | sudo tee -a /mnt/etc/fwupd/fwupd.conf
+# elif [ "${virtualization}" = 'kvm' ]; then
+#   pacstrap /mnt qemu-guest-agent
+#   if [ "${install_mode}" = 'desktop' ]; then
+#     pacstrap /mnt spice-vdagent
+#   fi
+# fi
 
 ## Install snap-pac list otherwise we will have problems
 pacstrap /mnt snap-pac
@@ -408,7 +412,7 @@ echo '# Loopback entries; do not change.
 # 192.168.1.13 bar.example.org bar' >/mnt/etc/hosts
 
 ## Setup locales
-echo "$locale.UTF-8 UTF-8" >/mnt/etc/locale.gen
+echo "$locale.UTF-8 UTF-8" >>/mnt/etc/locale.gen
 echo "zh_CN.UTF-8 UTF-8" >>/mnt/etc/locale.gen
 echo "LANG=$locale.UTF-8" >/mnt/etc/locale.conf
 
@@ -419,11 +423,11 @@ echo "KEYMAP=$kblayout" >/mnt/etc/vconsole.conf
 output 'Configuring /etc/mkinitcpio for ZSTD compression and LUKS hook.'
 sed -i 's/#COMPRESSION="zstd"/COMPRESSION="zstd"/g' /mnt/etc/mkinitcpio.conf
 sed -i 's/^MODULES=.*/MODULES=(btrfs)/g' /mnt/etc/mkinitcpio.conf
-if [ "${use_luks}" = '1' ]; then
-  sed -i 's/^HOOKS=.*/HOOKS=(systemd autodetect microcode modconf keyboard sd-vconsole block sd-encrypt)/g' /mnt/etc/mkinitcpio.conf
-else
-  sed -i 's/^HOOKS=.*/HOOKS=(systemd autodetect microcode modconf keyboard sd-vconsole block)/g' /mnt/etc/mkinitcpio.conf
-fi
+# if [ "${use_luks}" = '1' ]; then
+#   sed -i 's/^HOOKS=.*/HOOKS=(systemd autodetect microcode modconf keyboard sd-vconsole block sd-encrypt)/g' /mnt/etc/mkinitcpio.conf
+# else
+#   sed -i 's/^HOOKS=.*/HOOKS=(systemd autodetect microcode modconf keyboard sd-vconsole block)/g' /mnt/etc/mkinitcpio.conf
+# fi
 
 ## Enable LUKS in GRUB and setting the UUID of the LUKS container
 if [ "${use_luks}" = '1' ]; then
@@ -563,7 +567,6 @@ if [ "${install_mode}" = 'desktop' ]; then
 fi
 
 if [ "${install_mode}" = 'server' ]; then
-  systemctl enable sshd --root=/mnt
   systemctl enable unbound --root=/mnt
 fi
 
