@@ -353,7 +353,7 @@ mount -o nodev,nosuid,noexec "${ESP}" /mnt/boot/efi
 ## Pacstrap
 output 'Installing the base system (it may take a while).'
 
-pacstrap /mnt base base-devel linux-firmware linux linux-headers git neovim efibootmgr firewalld grub grub-btrfs inotify-tools snapper sudo zsh zsh-completions zramswap
+pacstrap /mnt base base-devel linux-firmware linux linux-headers git neovim efibootmgr firewalld grub grub-btrfs inotify-tools snapper sudo zsh zsh-completions
 
 if [ "${virtualization}" = 'none' ]; then
   CPU=$(grep -m 1 "vendor_id" /proc/cpuinfo | awk '{print $3}')
@@ -550,7 +550,7 @@ systemctl enable grub-btrfsd.service --root=/mnt
 systemctl enable snapper-timeline.timer --root=/mnt
 systemctl enable snapper-cleanup.timer --root=/mnt
 systemctl enable systemd-oomd --root=/mnt
-systemctl enable zramswap --root=/mnt
+#systemctl enable zramswap --root=/mnt
 systemctl disable systemd-timesyncd --root=/mnt
 
 if [ "${network_daemon}" = 'networkmanager' ]; then
