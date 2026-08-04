@@ -320,10 +320,24 @@ GLFW_IM_MODULE=ibus
 EOF
 
 # ---------------------------------------------------------------------------
-# mkinitcpio
+# mkinitcpio：单设备 btrfs 根分区，filesystems + autodetect 会在 mkinitcpio -P
+# 运行时（此时根分区已经以 btrfs 挂载）自动把 btrfs 模块收进镜像，不需要在
+# MODULES 里手动声明（只有 btrfs 多设备 RAID 池才需要）。
+# fsck 对 btrfs 是空操作所以不加；microcode 早期加载由 GRUB 自动拼接
+# intel-ucode.img/amd-ucode.img 完成，跟 mkinitcpio HOOKS 无关，也不需要
+# 新式的 microcode hook。显式指定 zstd 压缩，解压比默认更快。
 # ---------------------------------------------------------------------------
 output '配置 mkinitcpio ...'
-sed -i 's/^HOOKS=.*/HOOKS=(base udev autodetect modconf block filesystems keyboard fsck)/' /mnt/etc/mkinitcpio.conf
+sed -i 's/^HOOKS=.*/HOOKS=(base udev autodetect modconf block filesystems keyboard)/' /mnt/etc/mkinitcpio.conf
+sed -i 's/^#COMPRESSION="zstd"/COMPRESSION="zstd"/' /mnt/etc/mkinitcpio.conf
+if ! grep -q '^COMPRESSION="zstd"' /mnt/etc/mkinitcpio.conf; then
+  echo 'COMPRESSION="zstd"' >>/mnt/etc/mkinitcpio.conf
+fi
+if grep -q '^#COMPRESSION_OPTIONS=' /mnt/etc/mkinitcpio.conf; then
+  sed -i 's/^#COMPRESSION_OPTIONS=.*/COMPRESSION_OPTIONS=(-3)/' /mnt/etc/mkinitcpio.conf
+else
+  echo 'COMPRESSION_OPTIONS=(-3)' >>/mnt/etc/mkinitcpio.conf
+fi
 
 # ---------------------------------------------------------------------------
 # chroot 内配置

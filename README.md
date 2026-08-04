@@ -8,8 +8,8 @@
 
 ## 文件说明
 
-| 文件                       | 运行环境                               | 说明                                                                        |
-| -------------------------- | -------------------------------------- | --------------------------------------------------------------------------- |
+| 文件                     | 运行环境                               | 说明                                                                        |
+| ------------------------ | -------------------------------------- | --------------------------------------------------------------------------- |
 | `01-install-base.sh`     | Arch 官方安装 ISO 的 live 环境（root） | 分区、格式化、安装基础系统、中文字体/输入法、btrfs 子卷、zram swap          |
 | `02-install-hyprland.sh` | 装好后的系统，普通用户登录             | 安装 Hyprland 平铺窗口管理器（end-4/dots-hyprland）                         |
 | `03-mount-for-repair.sh` | Arch 官方安装 ISO 的 live 环境（root） | 系统崩溃/无法启动时，按固定分区标签挂载已安装好的系统并自动 chroot 进去维护 |
@@ -18,6 +18,7 @@
 
 1. 用 Arch 官方 ISO 启动机器（UEFI 模式）。
 2. 联网后执行：
+
    ```bash
    curl -O https://<你的托管地址>/01-install-base.sh
    chmod +x 01-install-base.sh
@@ -26,6 +27,7 @@
 
    按提示输入磁盘、ESP/根分区大小、用户名/密码/主机名等信息。根分区大小需要显式指定
    （不会自动占满剩余磁盘空间，方便你把尾部空间留给其他用途，比如双系统、额外分区）。
+
 3. 安装完成后 `reboot`，进入新系统，以你创建的**普通用户**登录（图形环境此时还没有 Hyprland，可先用 tty 或 SDDM 里的其他 fallback session，若无 fallback 可用 `Ctrl+Alt+F2` 切换到 tty 登录）。
 4. 执行：
    ```bash
@@ -85,11 +87,11 @@ disk
 
 相比参考脚本，本脚本**去掉了这几类子卷**，原因：
 
-| 去掉的子卷               | 原因                                                                                  |
-| ------------------------ | ------------------------------------------------------------------------------------- |
+| 去掉的子卷           | 原因                                                                              |
+| -------------------- | --------------------------------------------------------------------------------- |
 | `@boot`、`@cryptkey` | `/boot` 现在直接是 `@` 里的普通目录，不需要单独子卷；也没有 LUKS，不需要 cryptkey |
-| `@var_crash`           | 桌面场景很少主动分析 crash dump，如果你需要可以自己按同样方式加一个                   |
-| `@var_lib_ollama`      | 参考脚本的作者本地跑 ollama，这里默认不装，如果你会用可以照葫芦画瓢加一个子卷         |
+| `@var_crash`         | 桌面场景很少主动分析 crash dump，如果你需要可以自己按同样方式加一个               |
+| `@var_lib_ollama`    | 参考脚本的作者本地跑 ollama，这里默认不装，如果你会用可以照葫芦画瓢加一个子卷     |
 
 如果你确实需要 docker / libvirt / ollama 之外的其他工作负载专属子卷（比如某个数据库的数据目录），
 可以在 `01-install-base.sh` 里模仿现有写法（创建子卷 + 挂载）加一份，并同步在
@@ -162,3 +164,33 @@ shell 时会自动卸载所有挂载点，不用担心漏卸载。常见用途�
 
 如果希望系统整体切换为中文界面，把 `/etc/locale.conf` 里的 `LANG=en_US.UTF-8` 改为
 `LANG=zh_CN.UTF-8` 即可（本脚本按你的要求默认保持英文）。
+
+## mkinitcpio 优化
+
+`01-install-base.sh` 对 `/etc/mkinitcpio.conf` 做了以下调整：
+
+- **HOOKS 精简为**：
+
+```
+  HOOKS=(base udev autodetect modconf block filesystems keyboard)
+```
+
+在 Arch 官方默认 hook 集的基础上去掉了 `microcode` 和 `fsck`：
+
+- `microcode`：早期微码加载是 GRUB 自动拼接单独的 `intel-ucode.img`/`amd-ucode.img`
+  完成的（`grub-mkconfig` 检测到装了 `intel-ucode`/`amd-ucode` 包就会自动加），
+  跟 mkinitcpio 这层的 HOOKS 无关，不需要新式的 `microcode` hook。
+- `fsck`：根分区是 btrfs，这个 hook 对它是空操作（btrfs 没有开机自动 fsck 这回事）。
+- **没有在 MODULES 里手动声明 `btrfs`**：`filesystems` hook 会在 `mkinitcpio -P`
+  运行时（此时根分区已经以 btrfs 挂载，模块已加载）自动把根文件系统需要的模块收进
+  镜像，`autodetect` 只是负责裁掉用不到的模块。只有 btrfs 多设备 RAID 池才需要手动
+  声明 `MODULES=(btrfs)`，单分区场景不需要。
+- **压缩算法显式指定为 zstd，并降低压缩等级**：
+
+```
+  COMPRESSION="zstd"
+  COMPRESSION_OPTIONS=(-3)
+```
+
+zstd 本身解压比 xz 快很多，等级调低（默认是 19）主要是为了缩短 `mkinitcpio -P` 的
+构建时间，对开机时的解压速度影响很小，initramfs 体积增大也可以忽略不计。
