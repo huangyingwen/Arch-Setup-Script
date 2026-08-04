@@ -1,0 +1,66 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## 项目概述
+
+Arch Linux 自动化安装脚本集，基于 btrfs 子卷 + snapper 快照 + Hyprland 桌面环境。脚本按顺序分为安装阶段（live ISO）、桌面配置阶段（已安装系统）、维护修复阶段（live ISO）。
+
+## 脚本运行环境与执行顺序
+
+| 脚本 | 运行环境 | 用户身份 | 前置条件 |
+|---|---|---|---|
+| `01-base.sh` | Arch 安装 ISO live 环境 | root | UEFI 引导 |
+| `02-desktop.sh` | 已安装并重启后的系统 | 普通用户 | `01` 执行完毕 |
+| `03-repair.sh` | Arch 安装 ISO live 环境 | root | 系统崩溃/无法启动 |
+| `04-subvol.sh` | 已安装运行中的系统 | root | btrfs 根分区存在 |
+
+## 跨脚本的关键约束
+
+### 子卷管理（三层体系）
+
+子卷定义分散在多处，修改时需确认所有层级：
+
+1. **`01-base.sh`**：创建初始子卷（`btrfs su cr`）+ 创建挂载点目录（`mkdir -p`）+ 挂载（`mount`）+ `genfstab` 生成 fstab。这里的子卷列表是**源头**。
+
+2. **`03-repair.sh`**：`BASELINE_SUBVOLS` 硬编码数组作为**兜底基线**。除此之外，修复挂载时会自动从 `/etc/btrfs-subvols.conf` 注册表读取动态添加的子卷（默认），或通过 `--from-fstab` 从 fstab 解析。子卷合并时按名称去重，动态覆盖基线同名字卷。
+
+3. **`04-subvol.sh`**：运行中系统动态添加子卷，同时写入 `/etc/fstab` 和 `/etc/btrfs-subvols.conf` 注册表。注册表格式简单（`子卷名 挂载路径 [nodatacow]`），独立于 fstab 维护。
+
+4. **README.md**：分区方案 ASCII 图和子卷表格需同步。
+
+修改 `01-base.sh` 的子卷列表时，必须同步更新 `03-repair.sh` 的 `BASELINE_SUBVOLS` 数组和 README。通过 `04-subvol.sh` 动态添加的子卷无需手动同步修复脚本。
+
+### btrfs 挂载选项
+
+所有脚本统一使用 `MOUNT_OPTS='ssd,noatime,compress=zstd,space_cache=v2'`（`ssd` 对 SATA/NVMe 均无害，内核自动忽略不适用的优化）。修改时需保证四个脚本一致。
+
+### GPT 分区标签
+
+三个脚本都通过 `/dev/disk/by-partlabel/ESP` 和 `/dev/disk/by-partlabel/root` 定位分区（`01` 用 `sgdisk -c` 设置标签，`03` 和 `04-subvol.sh` 依赖这些标签）。修改分区标签会破坏整个工具链。
+
+## 脚本间的共享模式
+
+```bash
+# 所有脚本通用的输出函数
+output() { printf '\e[1;34m%-6s\e[m\n' "${@}"; }   # 蓝色信息
+err()    { printf '\e[1;31m%-6s\e[m\n' "${@}" >&2; }  # 红色错误
+
+# 所有脚本统一使用严格模式
+set -euo pipefail
+```
+
+## CI
+
+GitHub Actions `ShellCheck`（`.github/workflows/shellcheck.yml`）在 push/PR 到 main 分支时对所有 `.sh` 文件运行 shellcheck。提交前本地运行：
+
+```bash
+shellcheck *.sh
+```
+
+## 项目约定
+
+- 注释和用户可见输出使用中文，技术术语（btrfs、subvol、GRUB、ESP、snapper 等）保留英文。
+- 脚本不覆盖用户已有配置文件，优先用 `sed` 精确修改指定行（见 `02-desktop.sh` 的 `sddm_set` 函数和 Rofi 主题配置）。
+- 分区方案只有 ESP + root 两个分区，`/boot` 是 `@` 子卷内的普通目录，swap 用 zram 替代。
+- 没有 LUKS 加密，没有独立 `/boot` 分区。

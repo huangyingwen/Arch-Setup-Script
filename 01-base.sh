@@ -1,11 +1,11 @@
 #!/bin/bash
 #
-# 01-install-base.sh — Arch Linux 基础安装脚本
+# 01-base.sh — Arch Linux 基础安装脚本
 #
 # 用法：在 Arch Linux 官方安装 ISO 的 live 环境中以 root 运行：
-#   curl -O https://.../01-install-base.sh
-#   chmod +x 01-install-base.sh
-#   ./01-install-base.sh
+#   curl -O https://.../01-base.sh
+#   chmod +x 01-base.sh
+#   ./01-base.sh
 #
 # 分区方案（大小均由用户输入，根分区之后可以留出空闲空间给其他用途，
 # 例如日后新增分区、双系统等，不会自动占满整块磁盘）：
@@ -37,9 +37,9 @@
 #     出问题时可直接 `snapper rollback` 回滚（无需先从快照启动）。
 #
 # 系统崩溃后如需从 live ISO 挂载已安装好的系统进行维护，见配套的
-# 03-mount-for-repair.sh。
+# 03-repair.sh。
 #
-set -eu
+set -euo pipefail
 
 output() {
   printf '\e[1;34m%-6s\e[m\n' "${@}"
@@ -63,6 +63,18 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 timedatectl set-ntp true
+
+# ---------------------------------------------------------------------------
+# 虚拟机检测（VMware 需安装 open-vm-tools 获得剪贴板/显示集成）
+# 虚拟显卡由内核 vmwgfx + mesa svga 驱动支持，无需额外装包
+# ---------------------------------------------------------------------------
+VM_PACKAGES=''
+VM_SERVICES=''
+if systemd-detect-virt --quiet --vmware 2>/dev/null; then
+    VM_PACKAGES='open-vm-tools'
+    VM_SERVICES='vmtoolsd.service'
+    output '检测到 VMware 虚拟机，将安装 open-vm-tools。'
+fi
 
 # ---------------------------------------------------------------------------
 # 镜像源（中国大陆）
@@ -260,14 +272,18 @@ pacstrap /mnt base base-devel linux linux-firmware linux-headers \
   networkmanager sudo git neovim reflector openssh firewalld \
   zram-generator \
   sddm \
+  ${VM_PACKAGES} \
   inter-font adobe-source-serif-fonts noto-fonts-cjk noto-fonts-emoji ttf-sarasa-gothic \
   fcitx5 fcitx5-chinese-addons fcitx5-gtk fcitx5-qt fcitx5-configtool
 
-CPU=$(grep -m1 vendor_id /proc/cpuinfo | awk '{print $3}')
-if [ "${CPU}" = 'GenuineIntel' ]; then
-  pacstrap /mnt intel-ucode
-elif [ "${CPU}" = 'AuthenticAMD' ]; then
-  pacstrap /mnt amd-ucode
+# CPU 微码（虚拟机跳过，虚拟 CPU 不需要）
+if [ -z "${VM_PACKAGES}" ]; then
+  CPU=$(grep -m1 vendor_id /proc/cpuinfo | awk '{print $3}')
+  if [ "${CPU}" = 'GenuineIntel' ]; then
+    pacstrap /mnt intel-ucode
+  elif [ "${CPU}" = 'AuthenticAMD' ]; then
+    pacstrap /mnt amd-ucode
+  fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -373,11 +389,13 @@ systemctl enable fstrim.timer
 systemctl enable grub-btrfsd.service
 systemctl enable snapper-timeline.timer
 systemctl enable snapper-cleanup.timer
+# VMware 集成服务
+[ -n "${VM_SERVICES}" ] && systemctl enable ${VM_SERVICES}
 CHROOT
 
 echo -e "${user_password}\n${user_password}" | arch-chroot /mnt passwd "${username}"
 
 output '完成基础安装。现在可以重启进入新系统。'
-output '重启后，请以你创建的用户登录，然后运行 02-install-hyprland.sh 安装 Hyprland 桌面环境。'
+output '重启后，请以你创建的用户登录，然后运行 02-desktop.sh 安装 Hyprland 桌面环境。'
 output '需要回滚时执行: sudo snapper -c root list  查看快照编号，再 sudo snapper -c root rollback <编号>（/boot 会一起回滚）。'
-output '系统崩溃无法启动时，用 live ISO 运行 03-mount-for-repair.sh 挂载后再修复。'
+output '系统崩溃无法启动时，用 live ISO 运行 03-repair.sh 挂载后再修复。'
