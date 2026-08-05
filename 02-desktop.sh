@@ -63,9 +63,19 @@ bash <(curl -s https://ii.clsty.link/get)
 output '安装 SDDM 登录管理器 ...'
 sudo pacman -S --needed --noconfirm sddm qt6-svg qt6-virtualkeyboard qt6-multimedia qt6-imageformats
 
-# 启用 SDDM 服务
-output '启用 SDDM 服务 ...'
-sudo systemctl enable sddm.service
+# 先生成默认 /etc/sddm.conf（主题安装和后续 sed 配置都依赖此文件）
+if [ ! -f /etc/sddm.conf ]; then
+    output '生成默认 /etc/sddm.conf ...'
+    sddm --example-config | sudo tee /etc/sddm.conf > /dev/null || true
+fi
+
+# 辅助函数: 在指定 [section] 范围内设置 key=value
+# 用法: sddm_set <Section> <Key> <Value>
+sddm_set() {
+    local section="$1" key="$2" value="$3"
+    # 在 [section] 到下一个 [ 之间替换已存在的 key（含注释掉的）
+    sudo sed -i "/^\[${section}\]/,/^\[/ s|^#\?${key}=.*|${key}=${value}|" /etc/sddm.conf
+}
 
 # 安装 SilentSDDM 主题
 SDDM_THEME_DIR="/usr/share/sddm/themes/silent"
@@ -90,23 +100,8 @@ output '设置 SilentSDDM 主题配色为 catppuccin-latte ...'
 sudo sed -i 's/^ConfigFile=/; ConfigFile=/' "${SDDM_THEME_DIR}/metadata.desktop"
 sudo sed -i 's/^; ConfigFile=configs\/catppuccin-latte\.conf/ConfigFile=configs\/catppuccin-latte.conf/' "${SDDM_THEME_DIR}/metadata.desktop"
 
-# 配置 SDDM：通过 sed 修改现有配置，不覆盖整个文件
+# 配置 SDDM：通过 sed 修改现有配置，不覆盖整个文件（参照本机配置）
 output '配置 SDDM ...'
-# 注意: QT_SCREEN_SCALE_FACTORS / QT_FONT_DPI / X11 dpi 值可按需调整
-
-# 如果 /etc/sddm.conf 不存在，从示例配置生成
-if [ ! -f /etc/sddm.conf ]; then
-    output '生成默认 /etc/sddm.conf ...'
-    sddm --example-config | sudo tee /etc/sddm.conf > /dev/null || true
-fi
-
-# 辅助函数: 在指定 [section] 范围内设置 key=value
-# 用法: sddm_set <Section> <Key> <Value>
-sddm_set() {
-    local section="$1" key="$2" value="$3"
-    # 在 [section] 到下一个 [ 之间替换已存在的 key（含注释掉的）
-    sudo sed -i "/^\[${section}\]/,/^\[/ s|^#\?${key}=.*|${key}=${value}|" /etc/sddm.conf
-}
 
 # [General]
 sddm_set General DisplayServer wayland
@@ -115,6 +110,17 @@ sddm_set General InputMethod qtvirtualkeyboard
 
 # [Theme]
 sddm_set Theme Current silent
+
+# [Wayland] — HiDPI 缩放
+sddm_set Wayland EnableHiDPI true
+
+# [X11] — HiDPI 缩放 + DPI 设置（参照本机配置）
+sddm_set X11 EnableHiDPI true
+sddm_set X11 ServerArguments "-nolisten tcp -dpi 94"
+
+# 启用 SDDM 服务
+output '启用 SDDM 服务 ...'
+sudo systemctl enable sddm.service
 
 
 # ===========================================================================
