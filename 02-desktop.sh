@@ -42,7 +42,8 @@ if ! command -v yay >/dev/null; then
     output '安装 yay (AUR helper) ...'
     tmpdir=$(mktemp -d)
     git clone --depth 1 https://aur.archlinux.org/yay-bin.git "${tmpdir}/yay-bin"
-    (cd "${tmpdir}/yay-bin" && makepkg -si --noconfirm)
+    cd "${tmpdir}/yay-bin"
+    makepkg -si --noconfirm
     rm -rf "${tmpdir}"
 fi
 
@@ -96,7 +97,7 @@ output '配置 SDDM ...'
 # 如果 /etc/sddm.conf 不存在，从示例配置生成
 if [ ! -f /etc/sddm.conf ]; then
     output '生成默认 /etc/sddm.conf ...'
-    sddm --example-config | sudo tee /etc/sddm.conf > /dev/null
+    sddm --example-config | sudo tee /etc/sddm.conf > /dev/null || true
 fi
 
 # 辅助函数: 在指定 [section] 范围内设置 key=value

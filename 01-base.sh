@@ -7,10 +7,10 @@
 #   chmod +x 01-base.sh
 #   ./01-base.sh
 #
-# 分区方案（大小均由用户输入，根分区之后可以留出空闲空间给其他用途，
-# 例如日后新增分区、双系统等，不会自动占满整块磁盘）：
-#   1) ESP   (fat32) -> /boot/efi   独立 EFI 分区
-#   2) ROOT  (btrfs)  -> /          根分区，大小由用户指定（必填）
+# 分区方案：
+#   1) ESP   (fat32) -> /boot/efi   独立 EFI 分区，大小由用户输入（MiB，默认 512）
+#   2) ROOT  (btrfs)  -> /          根分区，直接回车使用剩余全部空间，
+#                                   输入数字则以 GiB 为单位使用指定大小
 #
 # 没有独立 /boot 分区、也没有 swap 分区：
 #   - /boot 就是根子卷 @ 里的普通目录（不是单独的子卷），跟 GRUB + grub-btrfs
@@ -20,8 +20,7 @@
 #   - swap 用 zram（内存压缩交换）代替物理分区，不占用磁盘空间，配置在
 #     /etc/systemd/zram-generator.conf。
 #
-# btrfs 子卷划分参考 https://github.com/huangyingwen/Arch-Setup-Script/blob/main/install.sh，
-# 分两类考虑：
+# btrfs 子卷划分分三类考虑：
 #   - nodatacow 类：/var/log /var/cache /tmp /var/tmp /var/spool 等高频写入、
 #     可重新生成或本身就是临时数据的目录，用 nodatacow 减少写放大，
 #     体积增长快也没必要挤进 snapper 快照。
@@ -29,8 +28,9 @@
 #     /var/lib/machines 等，属于"数据"而非"系统状态"，独立子卷后就不会在
 #     根分区 snapper 回滚时被一起"传送"回去（比如回滚系统不该连带删掉
 #     昨天新建的虚拟机镜像）。
-#   - /var/lib/sddm /var/lib/AccountsService 单独分出，是因为把根快照设为
-#     只读默认子卷后，sddm 仍需要写这两个目录，官方 wiki 也建议独立出来。
+#   - 服务可写类：/var/lib/sddm /var/lib/AccountsService 单独分出，是因为把
+#     根快照设为只读默认子卷后，sddm 仍需要写这两个目录，官方 wiki 也建议
+#     独立出来。
 #
 # 备份/恢复策略：
 #   - snapper 定时快照 + grub-btrfs 生成可启动的快照菜单项（包含 /boot），
@@ -84,7 +84,7 @@ mirror_prompt() {
   output '1) 是'
   output '2) 否，保留默认'
   read -r choice
-  case $choice in
+  case ${choice} in
   1)
     curl -L 'https://archlinux.org/mirrorlist/?country=CN&protocol=https' -o /etc/pacman.d/mirrorlist
     sed -i 's/^#Server/Server/' /etc/pacman.d/mirrorlist
@@ -118,33 +118,35 @@ is_positive_int() {
 }
 
 size_prompt() {
-  output '设置分区大小，单位 MiB（直接回车使用默认值）。'
+  output '设置分区大小。'
   output '注意：ESP / root 之外，磁盘剩余空间不会被占用，可留给其他用途。'
 
   read -r -p 'EFI 分区大小 (MiB, 默认 512): ' esp_size
   esp_size=${esp_size:-512}
 
-  while true; do
-    read -r -p '根分区大小 (MiB, 必须指定, 例如 51200 表示 50GiB): ' root_size
-    if is_positive_int "${root_size}" && [ "${root_size}" -gt 0 ]; then
-      break
-    fi
-    output '请输入一个正整数。'
-  done
-
+  # 验证 ESP 大小
   if ! is_positive_int "${esp_size}"; then
     output "分区大小必须是数字，请重新输入。"
     size_prompt
     return
   fi
+
+  output '根分区大小：直接按 Enter 使用磁盘剩余全部空间，输入数字则以 GiB 为单位。'
+  read -r -p '根分区大小 (GiB, 直接回车使用剩余全部空间): ' root_size
+
+  # 如果输入了值，验证必须是正整数
+  if [ -n "${root_size}" ]; then
+    if ! is_positive_int "${root_size}"; then
+      output "分区大小必须是数字，请重新输入。"
+      size_prompt
+      return
+    fi
+  fi
 }
 
 username_prompt() {
   read -r -p '设置用户名: ' username
-  [ -z "${username}" ] && {
-    output '用户名不能为空。'
-    username_prompt
-  }
+  [ -z "${username}" ] && { output '用户名不能为空。'; username_prompt; } || true
 }
 
 fullname_prompt() {
@@ -164,10 +166,7 @@ user_password_prompt() {
 
 hostname_prompt() {
   read -r -p '设置主机名: ' hostname
-  [ -z "${hostname}" ] && {
-    output '主机名不能为空。'
-    hostname_prompt
-  }
+  [ -z "${hostname}" ] && { output '主机名不能为空。'; hostname_prompt; } || true
 }
 
 timezone_prompt() {
@@ -196,8 +195,12 @@ sgdisk -g "${disk}"
 
 sgdisk -n "1:0:+${esp_size}M" -t "1:ef00" -c "1:ESP" "${disk}"
 
-# 根分区使用指定大小，而非剩余全部空间，磁盘尾部留白给其他用途。
-sgdisk -n "2:0:+${root_size}M" -t "2:8300" -c "2:root" "${disk}"
+# 根分区：输入了大小则使用指定大小（GiB），否则使用剩余全部空间
+if [ -n "${root_size}" ]; then
+  sgdisk -n "2:0:+${root_size}GiB" -t "2:8300" -c "2:root" "${disk}"
+else
+  sgdisk -n "2:0:0" -t "2:8300" -c "2:root" "${disk}"
+fi
 
 partprobe "${disk}"
 sleep 2
@@ -255,7 +258,7 @@ mount -o "${MOUNT_OPTS},nodatacow,subvol=@var_spool" "${BTRFS}" /mnt/var/spool
 mount -o "${MOUNT_OPTS},nodatacow,subvol=@var_lib_docker" "${BTRFS}" /mnt/var/lib/docker
 mount -o "${MOUNT_OPTS},nodatacow,subvol=@var_lib_libvirt_images" "${BTRFS}" /mnt/var/lib/libvirt/images
 mount -o "${MOUNT_OPTS},nodatacow,subvol=@var_lib_machines" "${BTRFS}" /mnt/var/lib/machines
-# 桌面环境（sddm）在根快照只读时仍需写入这两个目录
+# sddm（在 02-desktop.sh 中安装）在根快照只读时仍需写入这两个目录
 mount -o "${MOUNT_OPTS},nodatacow,subvol=@var_lib_sddm" "${BTRFS}" /mnt/var/lib/sddm
 mount -o "${MOUNT_OPTS},nodatacow,subvol=@var_lib_AccountsService" "${BTRFS}" /mnt/var/lib/AccountsService
 
@@ -264,14 +267,13 @@ mkdir -p /mnt/boot/efi
 mount "${ESP}" /mnt/boot/efi
 
 # ---------------------------------------------------------------------------
-# Pacstrap
+# Pacstrap（sddm 由 02-desktop.sh 安装，此处不装）
 # ---------------------------------------------------------------------------
 output '安装基础系统（这需要一些时间）...'
 pacstrap /mnt base base-devel linux linux-firmware linux-headers \
   btrfs-progs grub efibootmgr grub-btrfs inotify-tools snapper snap-pac \
   networkmanager sudo git neovim reflector openssh firewalld \
-  zram-generator \
-  sddm \
+  zram-generator tmux \
   ${VM_PACKAGES} \
   inter-font adobe-source-serif-fonts noto-fonts-cjk noto-fonts-emoji ttf-sarasa-gothic \
   fcitx5 fcitx5-chinese-addons fcitx5-gtk fcitx5-qt fcitx5-configtool
@@ -315,10 +317,10 @@ cat >/mnt/etc/hosts <<EOF
 EOF
 
 # ---------------------------------------------------------------------------
-# 中文设置：系统默认仍为英文（en_US），但生成 zh_CN 语言环境、
-# 安装中文字体与 fcitx5 中文输入法，供需要时切换/使用。
+# 中文支持：系统默认英文（en_US），同时生成 zh_CN locale、安装中文字体与
+# fcitx5 中文输入法，供需要时切换/使用。
 # ---------------------------------------------------------------------------
-output '配置语言环境（系统默认保持英文，另生成中文 locale）...'
+output '配置语言环境（系统默认英文，另生成中文 locale）...'
 {
   echo "${locale}.UTF-8 UTF-8"
   echo "zh_CN.UTF-8 UTF-8"
@@ -382,7 +384,6 @@ chmod 750 /.snapshots
 sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
 
 systemctl enable NetworkManager
-systemctl enable sddm
 systemctl enable firewalld
 systemctl enable sshd
 systemctl enable fstrim.timer
@@ -390,10 +391,10 @@ systemctl enable grub-btrfsd.service
 systemctl enable snapper-timeline.timer
 systemctl enable snapper-cleanup.timer
 # VMware 集成服务
-[ -n "${VM_SERVICES}" ] && systemctl enable ${VM_SERVICES}
+[ -n "${VM_SERVICES}" ] && systemctl enable ${VM_SERVICES} || true
 CHROOT
 
-echo -e "${user_password}\n${user_password}" | arch-chroot /mnt passwd "${username}"
+echo -e "${user_password}\n${user_password}" | arch-chroot /mnt passwd "${username}" || true
 
 output '完成基础安装。现在可以重启进入新系统。'
 output '重启后，请以你创建的用户登录，然后运行 02-desktop.sh 安装 Hyprland 桌面环境。'

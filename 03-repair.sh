@@ -124,18 +124,18 @@ if ${FROM_FSTAB}; then
     if [ -f "${FSTAB}" ]; then
         while IFS= read -r line; do
             # 跳过空行和注释
-            [[ -z "${line}" || "${line}" == '#'* ]] && continue
+            [[ -z "${line}" || "${line}" == '#'* ]] && continue || true
             # 只处理 btrfs 类型且含 subvol= 的条目
             echo "${line}" | grep -q 'btrfs.*subvol=' || continue
             subvol=$(echo "${line}" | sed -n 's/.*subvol=\([^ ,]*\).*/\1/p')
-            [ -z "${subvol}" ] && continue
+            [ -z "${subvol}" ] && continue || true
             # 排除根子卷 @
-            [ "${subvol}" = '@' ] && continue
+            [ "${subvol}" = '@' ] && continue || true
             mount_path=$(echo "${line}" | awk '{print $2}')
-            [ -z "${mount_path}" ] && continue
+            [ -z "${mount_path}" ] && continue || true
             # 判断 nodatacow
             nodatacow=0
-            echo "${line}" | grep -q 'nodatacow' && nodatacow=1
+            echo "${line}" | grep -q 'nodatacow' && nodatacow=1 || true
             # 转为注册表格式：路径是绝对路径（如 /home）
             DYNAMIC_SUBVOLS+=("${subvol} ${mount_path} ${nodatacow}")
         done < "${FSTAB}"
@@ -150,7 +150,7 @@ else
     if [ -f "${REGISTRY}" ]; then
         while IFS= read -r line; do
             # 跳过空行和注释
-            [[ -z "${line}" || "${line}" == '#'* ]] && continue
+            [[ -z "${line}" || "${line}" == '#'* ]] && continue || true
             # 格式: 子卷名 挂载路径 [nodatacow]
             read -r subvol mount_path nodatacow <<< "${line}"
             [ "${nodatacow}" = 'nodatacow' ] && nodatacow=1 || nodatacow=0
@@ -194,7 +194,7 @@ for subvol in "${!SEEN_SUBVOLS[@]}"; do
     mkdir -p "${target}"
 
     opts="${MOUNT_OPTS},subvol=${subvol}"
-    [ "${nodatacow}" = '1' ] && opts="${opts},nodatacow"
+    [ "${nodatacow}" = '1' ] && opts="${opts},nodatacow" || true
 
     output "挂载子卷 ${subvol} -> /${relpath}"
     mount -o "${opts}" "${ROOTPART}" "${target}"

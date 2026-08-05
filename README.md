@@ -10,8 +10,8 @@
 
 | 文件            | 运行环境                           | 说明                                                                                     |
 | --------------- | ---------------------------------- | ---------------------------------------------------------------------------------------- |
-| `01-base.sh`    | Arch 安装 ISO 的 live 环境（root） | 分区、格式化、安装基础系统、中文字体/输入法、btrfs 子卷、zram swap                       |
-| `02-desktop.sh` | 装好后的系统，普通用户登录         | 安装 Hyprland 桌面（dots-hyprland）、SDDM（SilentSDDM 主题）、Rofi（adi1090x/rofi 主题） |
+| `01-base.sh`    | Arch 安装 ISO 的 live 环境（root） | 分区、格式化、安装基础系统（含中文字体/输入法、tmux）、btrfs 子卷、zram swap。sddm 由 02 脚本安装 |
+| `02-desktop.sh` | 装好后的系统，普通用户登录         | 安装 Hyprland 桌面（dots-hyprland）、SDDM（SilentSDDM 主题）、Rofi（adi1090x/rofi 主题）           |
 | `03-repair.sh`  | Arch 安装 ISO 的 live 环境（root） | 系统崩溃/无法启动时，挂载系统并 chroot 维护；子卷列表 = 硬编码基线 + 注册表（或 fstab）  |
 | `04-subvol.sh`  | 已安装运行中的系统（root）         | 动态添加 btrfs 子卷，同步写入 fstab 和 `/etc/btrfs-subvols.conf` 注册表                  |
 
@@ -26,7 +26,7 @@
    ./01-base.sh
    ```
 
-   按提示输入磁盘、ESP/根分区大小、用户名/密码/主机名等信息。根分区大小需要显式指定（不会自动占满剩余空间，方便留给双系统等用途）。
+   按提示输入磁盘、ESP/根分区大小、用户名/密码/主机名等信息。根分区直接按 Enter 使用磁盘剩余全部空间，输入数字则以 GiB 为单位使用指定大小。
 
 3. 安装完成后 `reboot`，以你创建的**普通用户**登录（若无图形环境，用 `Ctrl+Alt+F2` 切换到 tty）。
 4. 执行：
@@ -53,8 +53,8 @@
 
 ```
 disk
-├── ESP         (fat32) → /boot/efi   独立 EFI 分区，大小由你输入（默认 512M）
-└── root        (btrfs)               大小由你输入（必填，无默认值）
+├── ESP         (fat32) → /boot/efi   独立 EFI 分区，大小由你输入（MiB，默认 512）
+└── root        (btrfs)               大小可选：回车=剩余全部空间，输入数字=指定 GiB
     ├── @                         → /（/boot 是 @ 里的普通目录，不单独分区/分卷）
     ├── @home                     → /home
     ├── @root                     → /root
@@ -71,7 +71,7 @@ disk
     ├── @var_lib_sddm             → /var/lib/sddm                (nodatacow)
     └── @var_lib_AccountsService  → /var/lib/AccountsService     (nodatacow)
 
-根分区之后如有空闲空间则原样保留，可留给其他用途（双系统、新增分区等）。
+根分区默认使用磁盘剩余全部空间；若手动指定了 GiB 大小，空闲空间则原样保留，可留给其他用途（双系统、新增分区等）。
 ```
 
 只有两个分区：**ESP** 和 **root**。没有独立 `/boot` 分区，也没有 swap 分区：
@@ -79,7 +79,7 @@ disk
 - **`/boot` 就是根子卷 `@` 里的一个普通目录**——GRUB 原生支持从 btrfs 读取内核/initramfs，`grub-btrfs` 会根据当前挂载的子卷生成菜单。snapper 对根分区打快照时会**自动把 `/boot` 一起打进去**，回滚时内核、initramfs、GRUB 配置会跟着回到一致状态。
 - **swap 用 zram 代替**（见下方），不占用磁盘空间。
 
-**根分区不自动占满磁盘**：根分区之后如果有空闲空间，会原样保留，你可以自己建别的分区。
+**根分区默认占满磁盘剩余空间**：直接按 Enter 即可；若指定了 GiB 大小，空余空间会原样保留，你可以自己建别的分区。
 
 **btrfs 子卷划分**思路分三类：
 

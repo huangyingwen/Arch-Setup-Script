@@ -72,7 +72,7 @@ if grep -q "subvol=${SUBVOL_NAME}" /etc/fstab; then
 else
     # 构建挂载选项
     MOUNT_OPTS='ssd,noatime,compress=zstd,space_cache=v2'
-    [ "${NODATACOW}" = 'nodatacow' ] && MOUNT_OPTS="${MOUNT_OPTS},nodatacow"
+    [ "${NODATACOW}" = 'nodatacow' ] && MOUNT_OPTS="${MOUNT_OPTS},nodatacow" || true
 
     output "追加 /etc/fstab 条目 ..."
     cat >> /etc/fstab << EOF
