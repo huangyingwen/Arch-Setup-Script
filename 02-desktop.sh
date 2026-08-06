@@ -57,6 +57,30 @@ output '默认克隆到 ~/.cache/dots-hyprland'
 bash <(curl -s https://ii.clsty.link/get)
 
 
+# ---------------------------------------------------------------------------
+# VMware 虚拟机 Hyprland 兼容配置
+# vmwgfx 不完全支持 direct_scanout，需禁用否则窗口/壁纸无法渲染（黑屏但光标可见）
+# ---------------------------------------------------------------------------
+if systemd-detect-virt --quiet --vmware 2>/dev/null; then
+    output '检测到 VMware 虚拟机，添加 Hyprland 兼容配置 ...'
+    CUSTOM_DIR="${HOME}/.config/hypr/custom"
+    mkdir -p "${CUSTOM_DIR}"
+    # dots-hyprland 会自动 source custom/general.lua，不存在则创建
+    if [ ! -f "${CUSTOM_DIR}/general.lua" ]; then
+        cat > "${CUSTOM_DIR}/general.lua" <<'EOF'
+-- VMware 虚拟机兼容设置
+hl.config({
+    misc = {
+        no_direct_scanout = true,
+    },
+})
+EOF
+        output '  已禁用 direct_scanout（解决 VMware 黑屏问题）'
+    else
+        output '  custom/general.lua 已存在，跳过（请手动确认 direct_scanout 配置）'
+    fi
+fi
+
 # ===========================================================================
 # 2. 安装并配置 SDDM（登录管理器）+ SilentSDDM 主题
 # ===========================================================================
