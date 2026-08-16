@@ -5,7 +5,7 @@
 # 运行环境: 已安装运行中的系统（root）
 # 前置条件: 已安装 os-prober（01-base.sh 双系统分支会安装）
 #
-# 解决的问题（三层，均为 os-prober 对 btrfs 子卷布局的缺陷）:
+# 解决的问题（四层，均为 os-prober 对 btrfs 子卷布局的缺陷）:
 #   1. os-probes/50mounted-tests 与 linux-boot-probes/50mounted-tests 用
 #      grub-mount 挂载 btrfs 分区，grub-mount 读的是顶层（FS_TREE），看不到
 #      默认子卷 @ 里的 /etc/os-release 与内核，导致检测不到子卷系统。
@@ -14,6 +14,8 @@
 #      /@/boot/），而 GRUB 读 btrfs 从顶层开始，会报 "file not found"。
 #      改为在路径前加默认子卷名。
 #   3. 90fallback 不加载 CPU 微码（amd-ucode.img / intel-ucode.img），补上。
+#   4. 90fallback 用设备路径（/dev/nvmeXnYpZ）作 root 参数，磁盘枚举顺序变化
+#      （如插入 Ventoy 盘）时失效。改为用文件系统 UUID（root=UUID=...）。
 #
 # 用法:
 #   sudo ./05-os-prober-btrfs-patch.sh            # 应用补丁（幂等，可重复运行）
@@ -85,6 +87,12 @@ def apply(path, patches, marker):
 
 # 补丁 1: 90fallback —— 路径加 btrfs 默认子卷前缀 + 加载 CPU 微码
 subvol_block = '''mappedpartition=$(mapdevfs "$partition" 2>/dev/null) || mappedpartition="$partition"
+
+# 用文件系统 UUID 而非设备路径：磁盘枚举顺序变化时设备路径会失效（如插入 Ventoy 盘）
+rootuuid=$(blkid -s UUID -o value "$partition" 2>/dev/null)
+if [ -n "$rootuuid" ]; then
+    mappedpartition="UUID=$rootuuid"
+fi
 
 # 检测 btrfs 默认子卷：GRUB 读 btrfs 从顶层开始，路径需带子卷名前缀（如 /@/boot/...）
 subvol_prefix=""
