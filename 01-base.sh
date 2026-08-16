@@ -7,10 +7,13 @@
 #   chmod +x 01-base.sh
 #   ./01-base.sh
 #
-# 分区方案：
-#   1) ESP   (fat32) -> /boot/efi   独立 EFI 分区，大小由用户输入（MiB，默认 512）
-#   2) ROOT  (btrfs)  -> /          根分区，直接回车使用剩余全部空间，
-#                                   输入数字则以 GiB 为单位使用指定大小
+# 分区方案（启动时询问，二选一）：
+#   - 单系统：清空整块磁盘，新建 ESP + root 两个分区（原有逻辑）。
+#   - 双系统：不清空磁盘，复用已有 EFI 分区（不格式化），在空闲空间创建 root
+#     分区，磁盘上其他已有分区（如 Windows）保持不变。
+#
+#   1) ESP   (fat32) -> /boot/efi   单系统新建；双系统复用已有（无则新建，大小 MiB）
+#   2) ROOT  (btrfs)  -> /          单系统占满整块盘；双系统占满空闲空间（大小 GiB）
 #
 # 没有独立 /boot 分区、也没有 swap 分区：
 #   - /boot 就是根子卷 @ 里的普通目录（不是单独的子卷），跟 GRUB + grub-btrfs
@@ -102,12 +105,27 @@ mirror_prompt() {
 # ---------------------------------------------------------------------------
 disk_prompt() {
   lsblk
-  output '请选择要安装到的磁盘（会清空整块磁盘，谨慎操作）：'
+  output '请选择要安装到的磁盘（安装模式稍后询问；单系统会清空整块磁盘，请谨慎选择）：'
   select entry in $(lsblk -dpnoNAME | grep -P "/dev/nvme|/dev/sd|/dev/vd|/dev/mmcblk"); do
     disk="${entry}"
     output "将安装到磁盘：${disk}"
     break
   done
+}
+
+dual_boot_prompt() {
+  output '请选择安装模式：'
+  output '1) 单系统：清空整块磁盘，新建 ESP + root 分区（磁盘上所有数据将被删除）'
+  output '2) 双系统：保留磁盘上已有系统（如 Windows），复用 EFI 分区，在空闲空间创建 root 分区'
+  read -r choice
+  case ${choice} in
+  1) DUAL_BOOT=false ;;
+  2) DUAL_BOOT=true ;;
+  *)
+    output '无效选择。'
+    dual_boot_prompt
+    ;;
+  esac
 }
 
 is_positive_int() {
@@ -119,9 +137,8 @@ is_positive_int() {
 
 size_prompt() {
   output '设置分区大小。'
-  output '注意：ESP / root 之外，磁盘剩余空间不会被占用，可留给其他用途。'
 
-  read -r -p 'EFI 分区大小 (MiB, 默认 512): ' esp_size
+  read -r -p 'EFI 分区大小 (MiB, 默认 512，仅在需要新建 EFI 分区时生效): ' esp_size
   esp_size=${esp_size:-512}
 
   # 验证 ESP 大小
@@ -131,8 +148,8 @@ size_prompt() {
     return
   fi
 
-  output '根分区大小：直接按 Enter 使用磁盘剩余全部空间，输入数字则以 GiB 为单位。'
-  read -r -p '根分区大小 (GiB, 直接回车使用剩余全部空间): ' root_size
+  output '根分区大小：直接按 Enter 使用磁盘剩余空间，输入数字则以 GiB 为单位。'
+  read -r -p '根分区大小 (GiB, 直接回车使用剩余空间): ' root_size
 
   # 如果输入了值，验证必须是正整数
   if [ -n "${root_size}" ]; then
@@ -177,6 +194,7 @@ timezone_prompt() {
 clear
 mirror_prompt
 disk_prompt
+dual_boot_prompt
 size_prompt
 username_prompt
 fullname_prompt
@@ -187,32 +205,85 @@ timezone_prompt
 locale=en_US
 
 # ---------------------------------------------------------------------------
-# 分区：只有 ESP 和 root 两个分区
+# 分区：根据安装模式分流
 # ---------------------------------------------------------------------------
-output "正在清空并重新分区 ${disk} ..."
-sgdisk --zap-all "${disk}"
-sgdisk -g "${disk}"
+if ${DUAL_BOOT}; then
+  # 双系统：不清空磁盘，复用已有 EFI 分区（若有），在空闲空间创建 root 分区
+  output "检测 ${disk} 上的分区布局 ..."
 
-sgdisk -n "1:0:+${esp_size}M" -t "1:ef00" -c "1:ESP" "${disk}"
+  # EFI 系统分区的 GPT 类型 GUID（parttype）
+  EFI_TYPE='C12A7328-F81F-11D2-BA4B-00A0C93EC93B'
 
-# 根分区：输入了大小则使用指定大小（GiB），否则使用剩余全部空间
-if [ -n "${root_size}" ]; then
-  sgdisk -n "2:0:+${root_size}GiB" -t "2:8300" -c "2:root" "${disk}"
+  # 查找已有 EFI 分区：存在则复用（不格式化，避免破坏已有系统的引导），否则新建
+  # 注意：-r 去除 lsblk 树形符号（├─/└─），tolower 处理 GUID 大小写差异
+  ESP_PART=$(lsblk -rnpo NAME,PARTTYPE "${disk}" 2>/dev/null | awk -v t="${EFI_TYPE}" 'tolower($2)==tolower(t){print $1; exit}')
+
+  NEW_ESP=false
+  if [ -n "${ESP_PART}" ]; then
+    ESP="${ESP_PART}"
+    output "检测到已有 EFI 分区 ${ESP}，将复用它（不会格式化）。"
+  else
+    NEW_ESP=true
+    output '未检测到 EFI 分区，将新建一个。'
+    sgdisk -n "0:0:+${esp_size}M" -t "0:ef00" -c "0:ESP" "${disk}"
+    partprobe "${disk}"
+    sleep 2
+    ESP=$(lsblk -rnpo NAME,PARTTYPE "${disk}" | awk -v t="${EFI_TYPE}" 'tolower($2)==tolower(t){print $1; exit}')
+  fi
+
+  # root 分区：在磁盘空闲空间创建（分区号自动分配），输入大小则按 GiB，否则占满剩余空闲空间。
+  # 不打 root 标签：多系统共存时 partlabel "root" 会歧义（详见 CLAUDE.md）。
+  # 先记录已有分区，创建后对比 lsblk 找出新增分区，用设备路径定位（确定性）。
+  output '在空闲空间创建 root 分区 ...'
+  existing_parts=$(lsblk -rnpo NAME "${disk}" | sort)
+  if [ -n "${root_size}" ]; then
+    sgdisk -n "0:0:+${root_size}GiB" -t "0:8300" "${disk}"
+  else
+    sgdisk -n "0:0:0" -t "0:8300" "${disk}"
+  fi
+
+  partprobe "${disk}"
+  sleep 2
+
+  ROOTPART=$(lsblk -rnpo NAME "${disk}" | grep -vFxf <(printf '%s\n' "${existing_parts}") | head -1)
+  if [ -z "${ROOTPART}" ]; then
+    err '未能确定新建的 root 分区设备路径，请手动 lsblk 确认。'
+    lsblk
+    exit 1
+  fi
+  output "root 分区：${ROOTPART}"
 else
-  sgdisk -n "2:0:0" -t "2:8300" -c "2:root" "${disk}"
+  # 单系统：清空整块磁盘，新建 ESP + root 两个分区（原有逻辑）
+  output "正在清空并重新分区 ${disk} ..."
+  sgdisk --zap-all "${disk}"
+  sgdisk -g "${disk}"
+
+  sgdisk -n "1:0:+${esp_size}M" -t "1:ef00" -c "1:ESP" "${disk}"
+
+  # 根分区：输入了大小则使用指定大小（GiB），否则使用剩余全部空间
+  if [ -n "${root_size}" ]; then
+    sgdisk -n "2:0:+${root_size}GiB" -t "2:8300" -c "2:root" "${disk}"
+  else
+    sgdisk -n "2:0:0" -t "2:8300" -c "2:root" "${disk}"
+  fi
+
+  partprobe "${disk}"
+  sleep 2
+
+  ESP=/dev/disk/by-partlabel/ESP
+  ROOTPART=/dev/disk/by-partlabel/root
+  NEW_ESP=true
 fi
-
-partprobe "${disk}"
-sleep 2
-
-ESP=/dev/disk/by-partlabel/ESP
-ROOTPART=/dev/disk/by-partlabel/root
 
 # ---------------------------------------------------------------------------
 # 格式化
 # ---------------------------------------------------------------------------
-output '格式化 EFI 分区为 FAT32 ...'
-mkfs.fat -F 32 -n ESP "${ESP}"
+if ${NEW_ESP}; then
+  output '格式化新建的 EFI 分区为 FAT32 ...'
+  mkfs.fat -F 32 -n ESP "${ESP}"
+else
+  output '复用已有 EFI 分区，跳过格式化 ...'
+fi
 
 BTRFS="${ROOTPART}"
 
@@ -236,12 +307,19 @@ btrfs su cr /mnt/@var_lib_libvirt_images
 btrfs su cr /mnt/@var_lib_machines
 btrfs su cr /mnt/@var_lib_sddm
 btrfs su cr /mnt/@var_lib_AccountsService
+
+# 设置默认子卷为 @：根分区 fstab 不写 subvol，靠默认子卷定位，
+# 这样 snapper rollback 的 set-default 才能切换根目录（fstab 里写死 subvol= 会覆盖默认子卷导致回滚失效）。
+# 注意：btrfs subvolume set-default 只认数字 ID，故动态取 @ 的 ID 而非写死 256。
+AT_ID=$(btrfs subvolume list /mnt | awk '$0 ~ / path @$/ {print $2}')
+btrfs subvolume set-default "${AT_ID}" /mnt
 umount /mnt
 
 MOUNT_OPTS='ssd,noatime,compress=zstd,space_cache=v2'
 
-# 挂载根子卷 @；/boot 是 @ 里的普通目录（没有单独挂载点），会随根分区快照一起备份。
-mount -o "${MOUNT_OPTS},subvol=@" "${BTRFS}" /mnt
+# 挂载根子卷 @（默认子卷已设为 @，故无需 subvol=@）；
+# /boot 是 @ 里的普通目录（没有单独挂载点），会随根分区快照一起备份。
+mount -o "${MOUNT_OPTS}" "${BTRFS}" /mnt
 mkdir -p /mnt/{home,root,.snapshots,srv,boot}
 mkdir -p /mnt/var/{log,cache,tmp,spool,lib/docker,lib/libvirt/images,lib/machines,lib/sddm,lib/AccountsService}
 mkdir -p /mnt/tmp
@@ -278,6 +356,11 @@ pacstrap /mnt base base-devel linux linux-firmware linux-headers \
   inter-font adobe-source-serif-fonts noto-fonts-cjk noto-fonts-emoji ttf-sarasa-gothic \
   fcitx5 fcitx5-chinese-addons fcitx5-gtk fcitx5-qt fcitx5-configtool
 
+# 双系统：安装 os-prober 以便 GRUB 检测 Windows 等其他系统
+if ${DUAL_BOOT}; then
+  pacstrap /mnt os-prober
+fi
+
 # CPU 微码（虚拟机跳过，虚拟 CPU 不需要）
 if [ -z "${VM_PACKAGES}" ]; then
   CPU=$(grep -m1 vendor_id /proc/cpuinfo | awk '{print $3}')
@@ -305,6 +388,9 @@ EOF
 # ---------------------------------------------------------------------------
 output '生成 fstab ...'
 genfstab -U /mnt >>/mnt/etc/fstab
+
+# 根分区条目不写 subvol/subvolid，让它跟随 btrfs 默认子卷（snapper rollback 依赖此机制）。
+sed -i -E '/^[^#]/ { /^[^[:space:]]+[[:space:]]+\/[[:space:]]+btrfs[[:space:]]/ s/(,?(subvol|subvolid)=[^ ,[:space:]]+)//g }' /mnt/etc/fstab
 
 # ---------------------------------------------------------------------------
 # 主机名 / hosts
@@ -368,6 +454,16 @@ locale-gen
 mkinitcpio -P
 
 grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB
+
+# 双系统：启用 os-prober，让 GRUB 检测到 Windows 等其他系统
+if ${DUAL_BOOT}; then
+  if grep -q '^GRUB_DISABLE_OS_PROBER' /etc/default/grub; then
+    sed -i 's/^GRUB_DISABLE_OS_PROBER=.*/GRUB_DISABLE_OS_PROBER=false/' /etc/default/grub
+  else
+    echo 'GRUB_DISABLE_OS_PROBER=false' >> /etc/default/grub
+  fi
+fi
+
 grub-mkconfig -o /boot/grub/grub.cfg
 
 useradd -c "${fullname}" -m -G wheel "${username}"

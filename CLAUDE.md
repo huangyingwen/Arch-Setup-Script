@@ -35,9 +35,13 @@ Arch Linux 自动化安装脚本集，基于 btrfs 子卷 + snapper 快照 + Hyp
 
 所有脚本统一使用 `MOUNT_OPTS='ssd,noatime,compress=zstd,space_cache=v2'`（`ssd` 对 SATA/NVMe 均无害，内核自动忽略不适用的优化）。修改时需保证四个脚本一致。
 
-### GPT 分区标签
+**根分区默认子卷**：`01-base.sh` 创建 `@` 后立即 `btrfs subvolume set-default` 把默认子卷设为 `@`，fstab 根条目**不写 `subvol=`/`subvolid=`**，靠默认子卷定位。这是 snapper rollback 的前提——rollback 通过 `set-default` 切换默认子卷实现回滚，fstab 里写死 `subvol=` 会覆盖默认子卷导致回滚失效。`03-repair.sh` 挂根同样不写 `subvol`，跟随默认子卷（回滚后默认子卷是快照）。注意 `set-default` 只认数字 ID（不接受路径名），需用 `btrfs subvolume list` 动态取 `@` 的 ID。
 
-三个脚本都通过 `/dev/disk/by-partlabel/ESP` 和 `/dev/disk/by-partlabel/root` 定位分区（`01` 用 `sgdisk -c` 设置标签，`03` 和 `04-subvol.sh` 依赖这些标签）。修改分区标签会破坏整个工具链。
+### GPT 分区标签与 EFI 分区定位
+
+- `root` 分区：**不再依赖 partlabel 定位**（多系统共存时 `by-partlabel/root` 会歧义）。`01` 单系统分支仍打 `root` 标签（向后兼容），双系统分支不打标签、用「创建前后 `lsblk` 对比」确定设备路径；`03-repair.sh` 按 btrfs 文件系统类型探测（单个自动、多个交互选择）。
+- EFI 分区：双系统下可能复用自其他系统（标签未必是 `ESP`），所以 `01`（双系统分支）和 `03-repair.sh` 都按 GPT 类型 GUID（`C12A7328-F81F-11D2-BA4B-00A0C93EC93B`）自动检测，而非依赖 `by-partlabel/ESP`。注意 `lsblk` 输出 GUID 为小写、且默认带树形符号，需用 `-r` 去符号、`tolower` 比较大小写。
+- `04-subvol.sh` 不依赖分区标签（它从 `/etc/fstab` 的 `subvol=@` 条目解析根分区）。
 
 ## 脚本间的共享模式
 

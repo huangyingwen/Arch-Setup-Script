@@ -14,9 +14,10 @@
 #   2. 默认读取 /etc/btrfs-subvols.conf（由 04-subvol.sh 维护）
 #   3. --from-fstab 时改为解析 /etc/fstab 中的 btrfs 子卷条目
 #
-# 本脚本假定磁盘分区是用 01-base.sh 创建的，分区标签固定为
-# ESP / root，通过 /dev/disk/by-partlabel/ 直接找到。/boot 是根子卷 @ 里的
-# 普通目录，随 @ 一起挂载，不需要单独处理；没有 swap 分区（用 zram）。
+# 本脚本假定磁盘分区是用 01-base.sh 创建的：root 分区是 btrfs 文件系统，按类型
+# 自动探测（多系统共存时 partlabel 会歧义，故不用 partlabel）；EFI 分区按 GPT
+# 类型 GUID 自动检测（双系统下可能是复用自其他系统的，标签未必是 ESP）。/boot
+# 是根子卷 @ 里的普通目录，随 @ 一起挂载，不需要单独处理；没有 swap 分区（用 zram）。
 #
 # 挂载完成后默认自动 arch-chroot 进入系统，退出 shell 后会自动卸载全部
 # 挂载点。
@@ -79,17 +80,35 @@ BASELINE_SUBVOLS=(
     "@var_lib_AccountsService   var/lib/AccountsService      1"
 )
 
-ESP=/dev/disk/by-partlabel/ESP
-ROOTPART=/dev/disk/by-partlabel/root
+# EFI 分区按 GPT 类型 GUID 自动检测（双系统下可能是复用自其他系统的，标签未必是 ESP）
+# -r 去除 lsblk 树形符号，tolower 处理 GUID 大小写差异
+ESP=$(lsblk -rnpo NAME,PARTTYPE 2>/dev/null | awk 'tolower($2)=="c12a7328-f81f-11d2-ba4b-00a0c93ec93b"{print $1; exit}')
 
-for dev in "${ESP}" "${ROOTPART}"; do
-    if [ ! -e "${dev}" ]; then
-        err "找不到 ${dev}，本脚本假定分区标签为 ESP / root。"
-        err '如果你的分区不是用 01-base.sh 创建的，请手动 lsblk 确认分区并手动挂载。'
-        lsblk
-        exit 1
-    fi
-done
+# root 分区按 btrfs 类型探测（多系统共存时 partlabel "root" 会歧义，故不用 partlabel）。
+# 单个 btrfs 分区自动选择，多个则让用户选择要挂载的系统。
+mapfile -t BTRFS_PARTS < <(blkid -t TYPE=btrfs -o device 2>/dev/null | sort)
+
+if [ "${#BTRFS_PARTS[@]}" -eq 0 ]; then
+    err '未找到 btrfs 分区（root 分区应为 btrfs 文件系统）。'
+    err '请手动 lsblk 确认分区。'
+    lsblk
+    exit 1
+elif [ "${#BTRFS_PARTS[@]}" -eq 1 ]; then
+    ROOTPART="${BTRFS_PARTS[0]}"
+else
+    output '检测到多个 btrfs 分区，请选择要挂载的 root 分区：'
+    lsblk -o NAME,SIZE,LABEL,MOUNTPOINT -p "${BTRFS_PARTS[@]}"
+    select ROOTPART in "${BTRFS_PARTS[@]}"; do
+        [ -n "${ROOTPART}" ] && break || true
+    done
+fi
+
+if [ -z "${ESP}" ] || [ ! -e "${ESP}" ]; then
+    err '找不到 EFI 分区（未检测到 GPT 类型为 EFI System 的分区）。'
+    err '请手动 lsblk 确认 EFI 分区，或检查分区表。'
+    lsblk
+    exit 1
+fi
 
 output '检测到以下分区：'
 output "  ESP  : ${ESP}"
@@ -106,10 +125,10 @@ cleanup() {
 trap cleanup EXIT
 
 # ---------------------------------------------------------------------------
-# 挂载根子卷 @
+# 挂载根子卷（跟随默认子卷：@ 或 rollback 后的快照）
 # ---------------------------------------------------------------------------
-output '挂载根子卷 @（/boot 在里面，会一起挂载） ...'
-mount -o "${MOUNT_OPTS},subvol=@" "${ROOTPART}" "${MOUNT_ROOT}"
+output '挂载根子卷（跟随默认子卷，/boot 在里面会一起挂载） ...'
+mount -o "${MOUNT_OPTS}" "${ROOTPART}" "${MOUNT_ROOT}"
 
 # ---------------------------------------------------------------------------
 # 收集动态子卷：优先注册表，--from-fstab 时改用 fstab
