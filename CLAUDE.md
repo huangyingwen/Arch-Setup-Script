@@ -14,6 +14,7 @@ Arch Linux 自动化安装脚本集，基于 btrfs 子卷 + snapper 快照 + Hyp
 | `02-desktop.sh` | 已安装并重启后的系统 | 普通用户 | `01` 执行完毕 |
 | `03-repair.sh` | Arch 安装 ISO live 环境 | root | 系统崩溃/无法启动 |
 | `04-subvol.sh` | 已安装运行中的系统 | root | btrfs 根分区存在 |
+| `05-os-prober-btrfs-patch.sh` | 已安装运行中的系统 | root | os-prober 已安装（双系统引导） |
 
 ## 跨脚本的关键约束
 

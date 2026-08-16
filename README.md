@@ -19,6 +19,7 @@
 | `02-desktop.sh` | 装好后的系统，普通用户登录         | 安装 Hyprland 桌面（dots-hyprland）、SDDM（SilentSDDM 主题）、Rofi（adi1090x/rofi 主题）           |
 | `03-repair.sh`  | Arch 安装 ISO 的 live 环境（root） | 系统崩溃/无法启动时，挂载系统并 chroot 维护；子卷列表 = 硬编码基线 + 注册表（或 fstab）  |
 | `04-subvol.sh`  | 已安装运行中的系统（root）         | 动态添加 btrfs 子卷，同步写入 fstab 和 `/etc/btrfs-subvols.conf` 注册表                  |
+| `05-os-prober-btrfs-patch.sh` | 已安装运行中的系统（root） | 修复 os-prober 对 btrfs 子卷系统的检测与引导（grub-mount 读顶层、引导路径缺子卷前缀、不加载微码），幂等可重复运行 |
 
 ## 快速开始
 
