@@ -146,7 +146,7 @@ if ${FROM_FSTAB}; then
             [[ -z "${line}" || "${line}" == '#'* ]] && continue || true
             # 只处理 btrfs 类型且含 subvol= 的条目
             echo "${line}" | grep -q 'btrfs.*subvol=' || continue
-            subvol=$(echo "${line}" | sed -n 's/.*subvol=\([^ ,]*\).*/\1/p')
+            subvol=$(echo "${line}" | sed -n 's/.*subvol=\([^ ,[:space:]]*\).*/\1/p')
             [ -z "${subvol}" ] && continue || true
             # 排除根子卷 @
             [ "${subvol}" = '@' ] && continue || true
@@ -182,23 +182,25 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 合并基线 + 动态子卷，按子卷名去重（动态覆盖基线同名字卷）
+# 合并基线 + 动态子卷，按挂载路径去重（动态覆盖基线同路径子卷）。
+# 用挂载路径作 key 而非子卷名：平铺(@home)与嵌套(@/home)两种布局的子卷名不同，
+# 但挂载路径一致，这样 fstab/注册表里当前机器真实可挂载的子卷名能正确覆盖基线。
 # ---------------------------------------------------------------------------
-declare -A SEEN_SUBVOLS  # 子卷名 -> "挂载路径 nodatacow"
+declare -A SEEN_SUBVOLS  # 挂载路径 -> "子卷名 nodatacow"
 
 # 先加载基线
 for entry in "${BASELINE_SUBVOLS[@]}"; do
     read -r subvol relpath nodatacow <<< "${entry}"
-    SEEN_SUBVOLS["${subvol}"]="${relpath} ${nodatacow}"
+    SEEN_SUBVOLS["${relpath}"]="${subvol} ${nodatacow}"
 done
 output "  基线子卷: ${#BASELINE_SUBVOLS[@]} 个"
 
-# 再加载动态（覆盖同名字卷）
+# 再加载动态（覆盖同挂载路径的子卷）
 for entry in "${DYNAMIC_SUBVOLS[@]}"; do
     read -r subvol abspath nodatacow <<< "${entry}"
     # 将绝对路径转为相对 /mnt 的路径
     relpath="${abspath#/}"
-    SEEN_SUBVOLS["${subvol}"]="${relpath} ${nodatacow}"
+    SEEN_SUBVOLS["${relpath}"]="${subvol} ${nodatacow}"
 done
 
 output "  合并后共 ${#SEEN_SUBVOLS[@]} 个子卷待挂载"
@@ -206,8 +208,8 @@ output "  合并后共 ${#SEEN_SUBVOLS[@]} 个子卷待挂载"
 # ---------------------------------------------------------------------------
 # 挂载所有子卷
 # ---------------------------------------------------------------------------
-for subvol in "${!SEEN_SUBVOLS[@]}"; do
-    read -r relpath nodatacow <<< "${SEEN_SUBVOLS[${subvol}]}"
+for relpath in "${!SEEN_SUBVOLS[@]}"; do
+    read -r subvol nodatacow <<< "${SEEN_SUBVOLS[${relpath}]}"
 
     target="${MOUNT_ROOT}/${relpath}"
     mkdir -p "${target}"
@@ -215,8 +217,13 @@ for subvol in "${!SEEN_SUBVOLS[@]}"; do
     opts="${MOUNT_OPTS},subvol=${subvol}"
     [ "${nodatacow}" = '1' ] && opts="${opts},nodatacow" || true
 
-    output "挂载子卷 ${subvol} -> /${relpath}"
-    mount -o "${opts}" "${ROOTPART}" "${target}"
+    # 跳过磁盘上不存在的子卷（如嵌套布局下基线 @tmp 无对应子卷），
+    # 避免 set -e 因单个子卷挂载失败而中断整个脚本。
+    if mount -o "${opts}" "${ROOTPART}" "${target}"; then
+        output "挂载子卷 ${subvol} -> /${relpath}"
+    else
+        err "跳过子卷 ${subvol}（挂载失败，该子卷可能不存在）"
+    fi
 done
 
 output '挂载 ESP 到 /boot/efi ...'
