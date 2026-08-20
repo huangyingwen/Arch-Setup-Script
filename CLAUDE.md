@@ -8,13 +8,13 @@ Arch Linux 自动化安装脚本集，基于 btrfs 子卷 + snapper 快照 + Hyp
 
 ## 脚本运行环境与执行顺序
 
-| 脚本 | 运行环境 | 用户身份 | 前置条件 |
-|---|---|---|---|
-| `01-base.sh` | Arch 安装 ISO live 环境 | root | UEFI 引导 |
-| `02-desktop.sh` | 已安装并重启后的系统 | 普通用户 | `01` 执行完毕 |
-| `03-repair.sh` | Arch 安装 ISO live 环境 | root | 系统崩溃/无法启动 |
-| `04-subvol.sh` | 已安装运行中的系统 | root | btrfs 根分区存在 |
-| `05-os-prober-btrfs-patch.sh` | 已安装运行中的系统 | root | os-prober 已安装（双系统引导） |
+| 脚本                          | 运行环境                | 用户身份 | 前置条件                       |
+| ----------------------------- | ----------------------- | -------- | ------------------------------ |
+| `01-base.sh`                  | Arch 安装 ISO live 环境 | root     | UEFI 引导                      |
+| `02-desktop.sh`               | 已安装并重启后的系统    | 普通用户 | `01` 执行完毕                  |
+| `03-repair.sh`                | Arch 安装 ISO live 环境 | root     | 系统崩溃/无法启动              |
+| `04-subvol.sh`                | 已安装运行中的系统      | root     | btrfs 根分区存在               |
+| `05-os-prober-btrfs-patch.sh` | 已安装运行中的系统      | root     | os-prober 已安装（双系统引导） |
 
 ## 跨脚本的关键约束
 
@@ -66,6 +66,6 @@ shellcheck *.sh
 ## 项目约定
 
 - 注释和用户可见输出使用中文，技术术语（btrfs、subvol、GRUB、ESP、snapper 等）保留英文。
-- 脚本不覆盖用户已有配置文件，优先用 `sed` 精确修改指定行（见 `02-desktop.sh` 的 `sddm_set` 函数和 Rofi 主题配置）。
+- 脚本不覆盖用户已有配置文件，优先用 `sed` 精确修改指定行（见 `02-desktop.sh` 的 Rofi 主题配置）。
 - 分区方案只有 ESP + root 两个分区，`/boot` 是 `@` 子卷内的普通目录，swap 用 zram 替代。
 - 没有 LUKS 加密，没有独立 `/boot` 分区。

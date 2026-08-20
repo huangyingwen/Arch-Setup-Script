@@ -13,13 +13,13 @@
 
 ## 文件说明
 
-| 文件            | 运行环境                           | 说明                                                                                     |
-| --------------- | ---------------------------------- | ---------------------------------------------------------------------------------------- |
-| `01-base.sh`    | Arch 安装 ISO 的 live 环境（root） | 分区、格式化、安装基础系统（含中文字体/输入法、tmux）、btrfs 子卷、zram swap。sddm 由 02 脚本安装 |
-| `02-desktop.sh` | 装好后的系统，普通用户登录         | 安装 Hyprland 桌面（dots-hyprland）、SDDM（SilentSDDM 主题）、Rofi（adi1090x/rofi 主题）           |
-| `03-repair.sh`  | Arch 安装 ISO 的 live 环境（root） | 系统崩溃/无法启动时，挂载系统并 chroot 维护；子卷列表 = 硬编码基线 + 注册表（或 fstab）  |
-| `04-subvol.sh`  | 已安装运行中的系统（root）         | 动态添加 btrfs 子卷，同步写入 fstab 和 `/etc/btrfs-subvols.conf` 注册表                  |
-| `05-os-prober-btrfs-patch.sh` | 已安装运行中的系统（root） | 修复 os-prober 对 btrfs 子卷系统的检测与引导（grub-mount 读顶层、引导路径缺子卷前缀、不加载微码），幂等可重复运行 |
+| 文件                          | 运行环境                           | 说明                                                                                                              |
+| ----------------------------- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `01-base.sh`                  | Arch 安装 ISO 的 live 环境（root） | 分区、格式化、安装基础系统（含中文字体/输入法、tmux）、btrfs 子卷、zram swap。                                    |
+| `02-desktop.sh`               | 装好后的系统，普通用户登录         | 安装 Hyprland 桌面（dots-hyprland）、Rofi（adi1090x/rofi 主题）                                                   |
+| `03-repair.sh`                | Arch 安装 ISO 的 live 环境（root） | 系统崩溃/无法启动时，挂载系统并 chroot 维护；子卷列表 = 硬编码基线 + 注册表（或 fstab）                           |
+| `04-subvol.sh`                | 已安装运行中的系统（root）         | 动态添加 btrfs 子卷，同步写入 fstab 和 `/etc/btrfs-subvols.conf` 注册表                                           |
+| `05-os-prober-btrfs-patch.sh` | 已安装运行中的系统（root）         | 修复 os-prober 对 btrfs 子卷系统的检测与引导（grub-mount 读顶层、引导路径缺子卷前缀、不加载微码），幂等可重复运行 |
 
 ## 快速开始
 
@@ -44,10 +44,9 @@
 
    脚本依次完成：
    - **dots-hyprland** — 通过在线脚本安装 Hyprland 桌面环境
-   - **SDDM** — 登录管理器 + SilentSDDM 主题（catppuccin-latte 配色）
    - **Rofi** — 应用启动器 + adi1090x/rofi 主题（launcher style-5 / powermenu style-1，onedark 配色）
 
-5. 重启后在 SDDM 登录界面选择 Hyprland 会话即可进入桌面。
+5. 重启后在 `tty` 界面执行 `source ~/.config/zshrc.d/auto-Hypr.sh` 即可进入桌面。
 
 ---
 
@@ -147,7 +146,6 @@ fs-type = swap
 ```
 桌面环境
 ├── WM / Shell       → Hyprland (dots-hyprland)
-├── 登录管理器        → SDDM + SilentSDDM 主题
 ├── 应用启动器        → Rofi + adi1090x/rofi 主题
 └── 输入法           → fcitx5 (dotfiles 管理)
 ```
@@ -155,23 +153,19 @@ fs-type = swap
 | 组件       | 选型                                                        | 说明                                                             |
 | ---------- | ----------------------------------------------------------- | ---------------------------------------------------------------- |
 | WM         | [dots-hyprland](https://ii.clsty.link/zh-cn/ii-qs/01setup/) | Hyprland + 全套 dotfiles，通过在线脚本安装                       |
-| 登录管理器 | [SDDM](https://github.com/sddm/sddm)                        | Qt6 原生，Wayland 模式运行，配置通过 sed 精确修改                |
-| 登录主题   | [SilentSDDM](https://github.com/uiriansan/SilentSDDM)       | catppuccin-latte 配色，支持虚拟键盘                              |
 | 应用启动器 | [Rofi](https://github.com/davatorium/rofi)                  | Wayland 原生，modi: drun / run / filebrowser / window            |
 | Rofi 主题  | [adi1090x/rofi](https://github.com/adi1090x/rofi)           | launcher type-1 style-5 + powermenu type-1 style-1，onedark 配色 |
 
 ### 配置方式
 
-SDDM 和 Rofi 均**不覆盖整个配置文件**，而是通过 `sed` 精确修改指定字段：
+Rofi **不覆盖整个配置文件**，而是通过 `sed` 精确修改指定字段：
 
-| 目标文件                                             | 修改内容                                                   |
-| ---------------------------------------------------- | ---------------------------------------------------------- |
-| `/etc/sddm.conf`                                     | DisplayServer / GreeterEnvironment / InputMethod / Current |
-| `/usr/share/sddm/themes/silent/metadata.desktop`     | ConfigFile → catppuccin-latte                              |
-| `~/.config/rofi/launchers/type-1/launcher.sh`        | theme → style-5                                            |
-| `~/.config/rofi/launchers/type-1/shared/colors.rasi` | @import → onedark                                          |
-| `~/.config/rofi/powermenu/type-1/powermenu.sh`       | theme → style-1                                            |
-| `~/.config/rofi/powermenu/type-1/shared/colors.rasi` | @import → onedark                                          |
+| 目标文件                                             | 修改内容          |
+| ---------------------------------------------------- | ----------------- |
+| `~/.config/rofi/launchers/type-1/launcher.sh`        | theme → style-5   |
+| `~/.config/rofi/launchers/type-1/shared/colors.rasi` | @import → onedark |
+| `~/.config/rofi/powermenu/type-1/powermenu.sh`       | theme → style-1   |
+| `~/.config/rofi/powermenu/type-1/shared/colors.rasi` | @import → onedark |
 
 ---
 
