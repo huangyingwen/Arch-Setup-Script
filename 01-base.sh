@@ -74,9 +74,9 @@ timedatectl set-ntp true
 VM_PACKAGES=''
 VM_SERVICES=''
 if systemd-detect-virt --quiet --vmware 2>/dev/null; then
-    VM_PACKAGES='open-vm-tools'
-    VM_SERVICES='vmtoolsd.service'
-    output '检测到 VMware 虚拟机，将安装 open-vm-tools。'
+  VM_PACKAGES='open-vm-tools'
+  VM_SERVICES='vmtoolsd.service'
+  output '检测到 VMware 虚拟机，将安装 open-vm-tools。'
 fi
 
 # ---------------------------------------------------------------------------
@@ -163,7 +163,10 @@ size_prompt() {
 
 username_prompt() {
   read -r -p '设置用户名: ' username
-  [ -z "${username}" ] && { output '用户名不能为空。'; username_prompt; } || true
+  [ -z "${username}" ] && {
+    output '用户名不能为空。'
+    username_prompt
+  } || true
 }
 
 fullname_prompt() {
@@ -183,7 +186,10 @@ user_password_prompt() {
 
 hostname_prompt() {
   read -r -p '设置主机名: ' hostname
-  [ -z "${hostname}" ] && { output '主机名不能为空。'; hostname_prompt; } || true
+  [ -z "${hostname}" ] && {
+    output '主机名不能为空。'
+    hostname_prompt
+  } || true
 }
 
 timezone_prompt() {
@@ -413,15 +419,6 @@ output '配置语言环境（系统默认英文，另生成中文 locale）...'
 } >>/mnt/etc/locale.gen
 echo "LANG=${locale}.UTF-8" >/mnt/etc/locale.conf
 echo 'KEYMAP=us' >/mnt/etc/vconsole.conf
-
-output '配置 fcitx5 输入法环境变量 ...'
-cat >>/mnt/etc/environment <<'EOF'
-GTK_IM_MODULE=fcitx
-QT_IM_MODULE=fcitx
-XMODIFIERS=@im=fcitx
-SDL_IM_MODULE=fcitx
-GLFW_IM_MODULE=ibus
-EOF
 
 # ---------------------------------------------------------------------------
 # mkinitcpio：单设备 btrfs 根分区，filesystems + autodetect 会在 mkinitcpio -P

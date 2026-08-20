@@ -132,7 +132,7 @@ fs-type = swap
 
 - 已生成 `zh_CN.UTF-8` locale，可临时使用：`LC_ALL=zh_CN.UTF-8 <命令>`
 - 已安装中文字体：`inter-font` `adobe-source-serif-fonts` `noto-fonts-cjk` `noto-fonts-emoji` `ttf-sarasa-gothic`
-- 已安装 fcitx5（`fcitx5` + `fcitx5-chinese-addons` + `fcitx5-gtk` + `fcitx5-qt`），环境变量写入 `/etc/environment`，Hyprland 自启动由 dotfiles repo 管理
+- 已安装 fcitx5（`fcitx5` + `fcitx5-chinese-addons` + `fcitx5-gtk` + `fcitx5-qt`），Hyprland 自启动由 dotfiles repo 管理
 - 首次使用运行 `fcitx5-configtool` 添加拼音输入方案
 
 切换到全中文界面：`/etc/locale.conf` 改为 `LANG=zh_CN.UTF-8`。
